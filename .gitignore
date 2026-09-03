@@ -2,6 +2,7 @@
 media/*.m4a
 media/*.mp4
 media/multimodal_pilot_data.zip
+media/multimodal_pilot_data_v3.zip
 
 # Python
 __pycache__/

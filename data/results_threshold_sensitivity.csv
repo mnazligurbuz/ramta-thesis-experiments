@@ -1,0 +1,5 @@
+threshold_%,test_UP_%,test_DOWN_%,test_NEUTRAL_%,n_test_UP_DOWN_only,majority_class_acc_3way,majority_class_acc_binary
+0.05,45.2,51.6,3.2,30,0.516,0.533
+0.1,45.2,48.4,6.5,29,0.484,0.517
+0.2,38.7,41.9,19.4,25,0.419,0.52
+0.3,35.5,32.3,32.3,21,0.323,0.476

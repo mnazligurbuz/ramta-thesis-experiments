@@ -1,25 +1,34 @@
 # -*- coding: utf-8 -*-
-"""Build the Colab notebook for the small real multimodal (Text+Audio+Visual+RAF) feasibility pilot."""
+"""Build the Colab notebook for the small real multimodal (Text+Audio+Visual+RAF) feasibility pilot.
+v2: uses TRUE sequence-level cross-attention (token/frame/audio-segment sequences),
+not pooled-vector cross-attention, per Section 5.5 of the thesis and the supervisor's
+comment on the cross-attention formulation."""
 import json, io
 
 cells = []
 def md(src): cells.append({"cell_type":"markdown","metadata":{},"source":src.splitlines(keepends=True)})
 def code(src): cells.append({"cell_type":"code","metadata":{},"execution_count":None,"outputs":[],"source":src.splitlines(keepends=True)})
 
-md("""# RAMTA Multimodal Feasibility Pilot (Text + Audio + Visual + RAF)
+md("""# RAMTA Multimodal Feasibility Pilot v2 (Text + Audio + Visual + RAF)
 **Thesis:** Analysis of the Impact of Political Multimodal Discourse on Financial Markets — Melike Nazlı Gürbüz (s34853)
 
 This notebook implements and runs the **full multimodal RAMTA architecture end-to-end**
 on N=5 real political events (FOMC press conferences, 2015-2024), each with real
 text, audio, and video sourced from federalreserve.gov.
 
+**v2 change:** this version implements **true sequence-level cross-attention**
+(operating over token / audio-frame / video-frame sequences, as specified in
+Section 5.5 of the thesis) rather than the pooled-single-vector cross-attention
+used in the v1 feasibility test. This directly addresses the mathematical
+degeneracy concern raised for v1 (softmax over a single key always equals 1).
+
 Because N=5 is too small for a statistically powered accuracy evaluation, this
-notebook is a **feasibility/implementation demonstration**: it shows that every
-component of the proposed architecture (FinBERT text encoder, Wav2Vec2 audio
-encoder, ViT visual encoder, cross-modal fusion, FAISS retrieval, SHAP
-explainability) runs correctly end-to-end on real data. Accuracy claims at this
-scale are not made; large-scale statistical evaluation remains future work,
-consistent with Chapter 7 of the thesis.
+notebook remains a **feasibility/implementation demonstration**: it shows that
+every component of the proposed architecture (FinBERT text encoder, Wav2Vec2
+audio encoder, ViT visual encoder, sequence-level cross-modal fusion, FAISS
+retrieval, SHAP explainability) runs correctly end-to-end on real data, and
+verifies non-degenerate attention weights. Large-scale statistical evaluation
+remains future work, consistent with Chapter 7 of the thesis.
 
 **How to use:**
 1. Runtime -> Change runtime type -> T4 GPU
@@ -60,23 +69,24 @@ events = [
 ]
 print(f'{len(events)} real events loaded')""")
 
-code("""# Cell 4 - Text encoder (FinBERT), same protocol as the Text+RAF pilot (Ch7)
+code("""# Cell 4 - Text encoder (FinBERT): FULL TOKEN SEQUENCE (not just CLS)
 from transformers import AutoTokenizer, AutoModel
 import torch, numpy as np
 
 tok_text = AutoTokenizer.from_pretrained('ProsusAI/finbert')
 enc_text = AutoModel.from_pretrained('ProsusAI/finbert').cuda().eval()
 
-text_embs = []
+text_seqs = []   # list of (L_i, 768) arrays, one per event
 with torch.no_grad():
     for ev in events:
-        batch = tok_text(ev['text'], truncation=True, max_length=128, return_tensors='pt').to('cuda')
+        batch = tok_text(ev['text'], truncation=True, max_length=64, return_tensors='pt').to('cuda')
         out = enc_text(**batch)
-        text_embs.append(out.last_hidden_state[:,0,:].cpu().numpy()[0])  # CLS token
-text_embs = np.stack(text_embs)
-print('Text embeddings:', text_embs.shape)""")
+        seq = out.last_hidden_state[0].cpu().numpy()   # (L, 768) - FULL sequence, not CLS only
+        text_seqs.append(seq)
+        print(f"  {ev['id']}: text sequence length L={seq.shape[0]}")
+print('Text: kept full token sequences (no pooling before fusion)')""")
 
-code("""# Cell 5 - Audio encoder (Wav2Vec2), real 3-minute press-conference audio clips
+code("""# Cell 5 - Audio encoder (Wav2Vec2): FULL FRAME SEQUENCE (subsampled for tractability)
 !pip -q install soundfile librosa
 from transformers import Wav2Vec2Processor, Wav2Vec2Model
 import librosa
@@ -84,18 +94,21 @@ import librosa
 proc_audio = Wav2Vec2Processor.from_pretrained('facebook/wav2vec2-base-960h')
 enc_audio = Wav2Vec2Model.from_pretrained('facebook/wav2vec2-base-960h').cuda().eval()
 
-audio_embs = []
+AUDIO_SUBSAMPLE = 25  # keep every 25th ~20ms frame (~2s stride) to keep sequence length manageable
+
+audio_seqs = []  # list of (T_i, 768) arrays, one per event
 with torch.no_grad():
     for ev in events:
         wav, sr = librosa.load(f"audio/{ev['id']}.m4a", sr=16000, duration=60)  # first 60s
         inputs = proc_audio(wav, sampling_rate=16000, return_tensors='pt').to('cuda')
         out = enc_audio(**inputs)
-        emb = out.last_hidden_state.mean(dim=1).cpu().numpy()[0]  # mean-pool over time
-        audio_embs.append(emb)
-audio_embs = np.stack(audio_embs)
-print('Audio embeddings:', audio_embs.shape)""")
+        full_seq = out.last_hidden_state[0]              # (T, 768), T ~ 3000 for 60s audio
+        seq = full_seq[::AUDIO_SUBSAMPLE].cpu().numpy()  # subsample -> (T/25, 768)
+        audio_seqs.append(seq)
+        print(f"  {ev['id']}: audio sequence length T={seq.shape[0]} (subsampled from {full_seq.shape[0]})")
+print('Audio: kept subsampled frame sequences (no mean-pooling before fusion)')""")
 
-code("""# Cell 6 - Visual encoder (ViT), real key-frames extracted at 1 frame/10s
+code("""# Cell 6 - Visual encoder (ViT): FULL KEY-FRAME SEQUENCE (18 frames per event)
 from transformers import ViTImageProcessor, ViTModel
 from PIL import Image
 import glob
@@ -103,7 +116,7 @@ import glob
 proc_vis = ViTImageProcessor.from_pretrained('google/vit-base-patch16-224')
 enc_vis = ViTModel.from_pretrained('google/vit-base-patch16-224').cuda().eval()
 
-visual_embs = []
+visual_seqs = []  # list of (18, 768) arrays, one per event
 with torch.no_grad():
     for ev in events:
         frame_paths = sorted(glob.glob(f"frames/{ev['id']}/*.jpg"))
@@ -112,50 +125,83 @@ with torch.no_grad():
             img = Image.open(fp).convert('RGB')
             inputs = proc_vis(images=img, return_tensors='pt').to('cuda')
             out = enc_vis(**inputs)
-            frame_vecs.append(out.last_hidden_state[:,0,:].cpu().numpy()[0])  # CLS token
-        visual_embs.append(np.mean(frame_vecs, axis=0))  # mean-pool over key-frames
-        print(f"  {ev['id']}: {len(frame_paths)} frames processed")
-visual_embs = np.stack(visual_embs)
-print('Visual embeddings:', visual_embs.shape)""")
+            frame_vecs.append(out.last_hidden_state[0, 0, :].cpu().numpy())  # CLS token per frame
+        seq = np.stack(frame_vecs)  # (18, 768) - full frame sequence, not mean-pooled
+        visual_seqs.append(seq)
+        print(f"  {ev['id']}: visual sequence length = {seq.shape[0]} key-frames")
+print('Visual: kept per-frame sequences (no mean-pooling before fusion)')""")
 
-code("""# Cell 7 - Cross-modal attention fusion (real implementation, Eq. in Section 5.5)
+code("""# Cell 7 - TRUE sequence-level cross-modal attention fusion (Section 5.5 formulation)
+# CrossAttn(A, B) = Softmax( Q_A K_B^T / sqrt(d_k) ) V_B
+# Q_A: (L_A, 768) query sequence from modality A: K_B, V_B: (L_B, 768) from modality B.
+# Softmax is over the L_B context positions -> non-degenerate whenever L_B > 1.
 import torch.nn.functional as F
 
-def cross_attn(query, key_value, d_k=768):
-    # query, key_value: (N, 768) treated as single-token sequences per event
-    Q = torch.tensor(query, dtype=torch.float32).cuda()
-    K = torch.tensor(key_value, dtype=torch.float32).cuda()
+d_k = 768
+
+def cross_attn_sequence(query_seq, kv_seq):
+    \"\"\"query_seq: (L_A, 768) numpy; kv_seq: (L_B, 768) numpy. Returns pooled (768,) output
+    and the (L_A, L_B) attention weight matrix for inspection.\"\"\"
+    Q = torch.tensor(query_seq, dtype=torch.float32).cuda()   # (L_A, 768)
+    K = torch.tensor(kv_seq, dtype=torch.float32).cuda()      # (L_B, 768)
     V = K.clone()
-    scores = (Q @ K.T) / (d_k ** 0.5)
-    weights = F.softmax(scores, dim=-1)
-    return (weights @ V).cpu().numpy(), weights.cpu().numpy()
+    scores = (Q @ K.T) / (d_k ** 0.5)                         # (L_A, L_B)
+    weights = F.softmax(scores, dim=-1)                       # softmax over L_B (context) positions
+    attended = weights @ V                                    # (L_A, 768)
+    pooled = attended.mean(dim=0)                              # mean-pool over L_A (query) -> (768,)
+    return pooled.cpu().numpy(), weights.cpu().numpy()
 
-ta, w_ta = cross_attn(text_embs, audio_embs)
-at, w_at = cross_attn(audio_embs, text_embs)
-tv, w_tv = cross_attn(text_embs, visual_embs)
-vt, w_vt = cross_attn(visual_embs, text_embs)
-av, w_av = cross_attn(audio_embs, visual_embs)
-va, w_va = cross_attn(visual_embs, audio_embs)
+fused_list = []
+example_weights = None
+for i, ev in enumerate(events):
+    T_seq, A_seq, V_seq = text_seqs[i], audio_seqs[i], visual_seqs[i]
 
-fused_raw = np.concatenate([ta, at, tv, vt, av, va], axis=1)  # (5, 6*768)
+    ta, w_ta = cross_attn_sequence(T_seq, A_seq)
+    at, w_at = cross_attn_sequence(A_seq, T_seq)
+    tv, w_tv = cross_attn_sequence(T_seq, V_seq)
+    vt, w_vt = cross_attn_sequence(V_seq, T_seq)
+    av, w_av = cross_attn_sequence(A_seq, V_seq)
+    va, w_va = cross_attn_sequence(V_seq, A_seq)
+
+    fused_raw_i = np.concatenate([ta, at, tv, vt, av, va])   # (4608,)
+    fused_list.append(fused_raw_i)
+
+    if i == 0:
+        example_weights = w_tv   # (L_T, L_V) attention matrix, Text attending to Visual
+
+    # Non-degeneracy check: with L_B > 1 keys, entropy of the softmax distribution is > 0
+    ent = -(w_tv * np.log(w_tv + 1e-12)).sum(axis=-1).mean()
+    max_ent = np.log(w_tv.shape[-1])
+    print(f"  {ev['id']}: T->V attention over L_B={w_tv.shape[-1]} visual frames, "
+          f"mean entropy={ent:.3f} (max possible={max_ent:.3f}, 0 would indicate a degenerate/one-hot distribution)")
+
+fused_raw = np.stack(fused_list)  # (5, 4608)
+print()
 print('Fused (pre-projection) shape:', fused_raw.shape)
+print()
+print('Example Text->Visual attention weight matrix (first event), rows=text tokens, cols=video frames:')
+print(np.round(example_weights[:5], 3))  # first 5 text-token rows for inspection
+print()
+print('Because each modality is now represented as a genuine multi-element sequence')
+print('(not a single pooled vector), the softmax above is computed over multiple keys')
+print('and produces a non-trivial (non-degenerate) attention distribution, unlike the')
+print('pooled-vector version used in the v1 feasibility test.')
 
 # Linear projection to 1024-dim (Section 5.5), random-init since no training data at N=5
 torch.manual_seed(42)
 proj = torch.nn.Linear(fused_raw.shape[1], 1024).cuda()
 with torch.no_grad():
     fused = proj(torch.tensor(fused_raw, dtype=torch.float32).cuda()).cpu().numpy()
-print('F_fused shape:', fused.shape)
 print()
+print('F_fused shape:', fused.shape)
 print('NOTE: with N=5 events there is no independent training set to learn the fusion')
-print('projection weights; this cell demonstrates that the architecture executes correctly')
-print('end-to-end on real data (dimensions match Section 5.5 exactly), not a trained model.')""")
+print('projection weights; this cell demonstrates that the (now non-degenerate)')
+print('sequence-level cross-attention mechanism executes correctly end-to-end on real')
+print('data, not a trained/optimised model.')""")
 
-code("""# Cell 8 - FAISS retrieval demonstration (real retrieval over the 5-event set + text-only 202-event KB)
+code("""# Cell 8 - FAISS retrieval demonstration (real retrieval over the 5-event set)
 import faiss
 
-# Retrieve over the fused multimodal query against the fused representations themselves
-# (leave-one-out: for each event, retrieve the most similar OTHER event)
 Fn = fused / np.linalg.norm(fused, axis=1, keepdims=True)
 index = faiss.IndexFlatIP(Fn.shape[1])
 index.add(Fn.astype('float32'))
@@ -180,31 +226,25 @@ clf = LogisticRegression(max_iter=1000).fit(fused, dummy_labels)
 explainer = shap.LinearExplainer(clf, fused)
 shap_vals = explainer.shap_values(fused)
 print('SHAP values shape:', shap_vals.shape, '(N events x 1024 fused dims)')
-print()
-print('Mean |SHAP| per modality-pair block (indicates which cross-attention pairing')
-print('the classifier would weight most heavily once trained on real labels):')
-# fused was built by a random projection over 6 concatenated 768-dim blocks -> cannot
-# cleanly attribute back to blocks post-projection; report aggregate magnitude instead.
 print('Aggregate mean |SHAP| across all fused dims:', np.abs(shap_vals).mean())""")
 
 code("""# Cell 10 - save results and download
 import pandas as pd
 summary = pd.DataFrame({
     'event_date': [e['date'] for e in events],
-    'text_emb_dim': [text_embs.shape[1]]*5,
-    'audio_emb_dim': [audio_embs.shape[1]]*5,
-    'visual_emb_dim': [visual_embs.shape[1]]*5,
+    'text_seq_len': [s.shape[0] for s in text_seqs],
+    'audio_seq_len': [s.shape[0] for s in audio_seqs],
+    'visual_seq_len': [s.shape[0] for s in visual_seqs],
     'fused_dim': [fused.shape[1]]*5,
 })
-summary.to_csv('multimodal_pilot_summary.csv', index=False)
+summary.to_csv('multimodal_pilot_summary_v2.csv', index=False)
 print(summary.to_string(index=False))
 
-np.savez('multimodal_pilot_embeddings.npz',
-        text=text_embs, audio=audio_embs, visual=visual_embs, fused=fused)
+np.savez('multimodal_pilot_embeddings_v2.npz', fused=fused)
 
 from google.colab import files
-files.download('multimodal_pilot_summary.csv')
-files.download('multimodal_pilot_embeddings.npz')""")
+files.download('multimodal_pilot_summary_v2.csv')
+files.download('multimodal_pilot_embeddings_v2.npz')""")
 
 nb = {"cells": cells,
       "metadata": {"accelerator": "GPU", "colab": {"provenance": []},
@@ -212,7 +252,7 @@ nb = {"cells": cells,
                    "language_info": {"name": "python"}},
       "nbformat": 4, "nbformat_minor": 0}
 
-out = r'C:\Users\melik\OneDrive\Desktop\newthesis\experiments\RAMTA_multimodal_pilot_colab.ipynb'
+out = r'C:\Users\melik\OneDrive\Desktop\newthesis\experiments\RAMTA_multimodal_pilot_v2_colab.ipynb'
 with io.open(out, 'w', encoding='utf-8') as f:
     json.dump(nb, f, indent=1, ensure_ascii=False)
 print('notebook written:', out)
