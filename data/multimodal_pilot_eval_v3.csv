@@ -1,0 +1,2 @@
+n_train,n_test,test_accuracy,wilson_ci_low,wilson_ci_high
+11,4,0.75,0.30063605244263664,0.9544139373553638

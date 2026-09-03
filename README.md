@@ -86,6 +86,13 @@ attention) and `RAMTA_multimodal_pilot_v2_colab.ipynb` (N=5, sequence-level
 attention) are retained in this repository for provenance but are superseded
 by v3.
 
+Actual output from running `RAMTA_multimodal_pilot_v3_colab.ipynb` end-to-end is
+saved in `data/multimodal_pilot_summary_v3.csv` (per-event sequence lengths and
+T->V attention entropy, confirming non-degeneracy for all 15 events),
+`data/multimodal_pilot_eval_v3.csv` (test accuracy = 0.75, 3/4 correct, 95%
+Wilson CI [0.301, 0.954]), and `data/multimodal_pilot_embeddings_v3.npz` (the
+1024-dim fused representations and labels for all 15 events).
+
 ## Notes on methodology
 
 - All models use **frozen** pre-trained encoders (FinBERT, Wav2Vec2-base,
