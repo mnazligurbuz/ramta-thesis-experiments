@@ -1,0 +1,5 @@
+Model,Task,Directional Acc.,Volatility
+Majority class,EURUSD dir (3d),0.484,-
+"ARIMA(1,0,1)",EURUSD dir (3d),0.516,-
+"GARCH(1,1)",EURUSD volatility,-,"RMSE=0.3320, persistence=0.994"
+Naive vol,EURUSD volatility,-,RMSE=0.3609

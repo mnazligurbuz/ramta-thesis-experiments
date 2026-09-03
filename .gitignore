@@ -1,0 +1,13 @@
+# Raw audio/video source files (large; see README for source URLs)
+media/*.m4a
+media/*.mp4
+media/multimodal_pilot_data.zip
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
