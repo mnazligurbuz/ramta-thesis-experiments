@@ -1,0 +1,5 @@
+Model,Directional Accuracy (test),Weighted F1
+"Majority class (3-class, n_test=31)",0.484,-
+"ARIMA(1,0,1) (3-class, n_test=31)",0.516,-
+"FinBERT text-only (binary, n_test=28)",0.607,0.608
+"FinBERT + RAF (K=5) (binary, n_test=28)",0.679,0.679

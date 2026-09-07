@@ -24,11 +24,14 @@ experiments/
 ├── build_multimodal_notebook.py           (12 KB)  Generates RAMTA_multimodal_pilot_v2_colab.ipynb
 ├── build_multimodal_notebook_v3.py        (14 KB)  Generates RAMTA_multimodal_pilot_v3_colab.ipynb
 ├── 04_threshold_sensitivity.py            (2 KB)   0.1% neutral-band threshold sensitivity analysis (Section 3.2.1/4.4)
+├── 05_return_statistics.py                (2 KB)   Daily-return NEUTRAL coverage + volatility stats behind the 0.1% band justification (Section 3.2.1)
 ├── data/                                   (889 KB total)
 │   ├── financial_data.csv                 (796 KB, 2,712 rows)  Daily OHLC + log returns + rolling volatility, 2015-2025
 │   ├── political_events.csv               (88 KB, 202 rows)     202 curated political events with real market-reaction labels
 │   ├── results_econometric.csv            (1 KB)                ARIMA/GARCH benchmark output
-│   └── results_threshold_sensitivity.csv  (1 KB)                Label-threshold sensitivity results
+│   ├── results_threshold_sensitivity.csv  (1 KB)                Label-threshold sensitivity results
+│   ├── results_return_statistics.csv      (1 KB)                Daily-return NEUTRAL share and volatility per FX pair
+│   └── results_finbert_raf.csv            (1 KB)                Text + RAF pilot output at the final 202-event scale (Table 7.2)
 └── media/
     └── frames/                            (16.5 MB, 270 JPEGs)  Key-frames (1 fps/10s, 18 per event × 15 events)
 
@@ -92,6 +95,40 @@ T->V attention entropy, confirming non-degeneracy for all 15 events),
 `data/multimodal_pilot_eval_v3.csv` (test accuracy = 0.75, 3/4 correct, 95%
 Wilson CI [0.301, 0.954]), and `data/multimodal_pilot_embeddings_v3.npz` (the
 1024-dim fused representations and labels for all 15 events).
+
+## Terminology: RAF, not RAG
+
+This repository implements **Retrieval-Augmented Forecasting (RAF)**, not classical
+Retrieval-Augmented Generation (RAG): there is no generative component, and the
+retrieved context feeds a forecasting/classification head. Thesis Section 2.6.3
+sets out the distinction. The string `RAG` appears in this repository only where
+the classical generative literature is being referred to.
+
+## Correspondence between the thesis and this code
+
+Points where the implementation deliberately differs from, or is narrower than,
+the architectural specification in Chapter 5 of the thesis:
+
+- **Retrieval integration.** Section 5.6 specifies cross-attention over the
+  retrieved records. The text-scope pilot (`build_notebook.py`, Cell 6) instead
+  summarises the top-K neighbours into four scalar context features concatenated
+  to the FinBERT embedding. Documented in thesis Section 7.6.
+- **K.** Fixed at `K = 5`. The range K ∈ {1,3,5,10} in Section 5.6 is the intended
+  search space for the full-scale evaluation; no sweep was run.
+- **ARIMA neutral predictions.** `03_econometric_baselines.py` maps ARIMA
+  predictions falling inside the 0.1% neutral band to the training-set majority
+  class before scoring, because the model almost always forecasts ~0. True labels
+  are unmodified. Documented in the notes to Table 7.2.
+- **Evaluation samples differ between columns of Table 7.2.** The econometric
+  benchmarks use the 3-class sample (199 labelled events, 139/29/31 split); the
+  FinBERT models use the 180 UP/DOWN events (125/27/28 split).
+- **Audio/visual time windows in the N=15 test.** `RAMTA_multimodal_pilot_v3_colab.ipynb`
+  encodes the first 60 s of audio but 18 key-frames spanning 180 s, so the two
+  modalities are not temporally aligned. Stated in thesis Section 7.5.1 and listed
+  as a required correction in Chapter 9.
+- **Not implemented anywhere in this repository:** LIME, MS-GARCH, VAR, and the
+  systematic modality ablation study. These are design-level components of the
+  proposed framework and are labelled `[Planned]` throughout the thesis.
 
 ## Notes on methodology
 
