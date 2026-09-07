@@ -126,6 +126,14 @@ the architectural specification in Chapter 5 of the thesis:
   encodes the first 60 s of audio but 18 key-frames spanning 180 s, so the two
   modalities are not temporally aligned. Stated in thesis Section 7.5.1 and listed
   as a required correction in Chapter 9.
+- **Only the final row of Table 7.2 is reproducible from this repository.** The
+  event repository was expanded in place across six pilot iterations (79 → 116 →
+  137 → 154 → 174 → 202 events) rather than being versioned, so
+  `02_build_event_dataset.py` and `data/results_finbert_raf.csv` correspond to the
+  202-event configuration only. The five earlier rows come from the pilot
+  experimental log and their dataset snapshots were not archived; they are
+  reported in the thesis as a record of the pilot process, not as independently
+  verifiable measurements.
 - **Not implemented anywhere in this repository:** LIME, MS-GARCH, VAR, and the
   systematic modality ablation study. These are design-level components of the
   proposed framework and are labelled `[Planned]` throughout the thesis.
