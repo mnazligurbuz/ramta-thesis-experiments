@@ -25,6 +25,7 @@ experiments/
 ├── build_multimodal_notebook_v3.py        (14 KB)  Generates RAMTA_multimodal_pilot_v3_colab.ipynb
 ├── 04_threshold_sensitivity.py            (2 KB)   0.1% neutral-band threshold sensitivity analysis (Section 3.2.1/4.4)
 ├── 05_return_statistics.py                (2 KB)   Daily-return NEUTRAL coverage + volatility stats behind the 0.1% band justification (Section 3.2.1)
+├── 06_regenerate_shap_figure.py           (5 KB)   CPU reproduction of the Text + RAF pilot; regenerates Figure 7.2 and results_finbert_raf.csv
 ├── data/                                   (889 KB total)
 │   ├── financial_data.csv                 (796 KB, 2,712 rows)  Daily OHLC + log returns + rolling volatility, 2015-2025
 │   ├── political_events.csv               (88 KB, 202 rows)     202 curated political events with real market-reaction labels
@@ -126,6 +127,11 @@ the architectural specification in Chapter 5 of the thesis:
   encodes the first 60 s of audio but 18 key-frames spanning 180 s, so the two
   modalities are not temporally aligned. Stated in thesis Section 7.5.1 and listed
   as a required correction in Chapter 9.
+- **The final row of Table 7.2 has been reproduced from this repository.**
+  Running `python 06_regenerate_shap_figure.py` on CPU yields 180 UP/DOWN events,
+  a 125 / 27 / 28 chronological split, FinBERT text-only accuracy 0.607 (F1 0.608)
+  and FinBERT + RAF accuracy 0.679 (F1 0.679) — identical to the values reported
+  in the thesis — and regenerates Figure 7.2. No GPU is required.
 - **Only the final row of Table 7.2 is reproducible from this repository.** The
   event repository was expanded in place across six pilot iterations (79 → 116 →
   137 → 154 → 174 → 202 events) rather than being versioned, so
